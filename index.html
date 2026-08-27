@@ -1,646 +1,662 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { createRoot } from 'react-dom/client';
-import { 
-  Share, PlusSquare, X, Smartphone, ShieldCheck, Lock, UserCheck, 
-  CheckCircle, AlertCircle, Building, Phone, ArrowRight, UserPlus, 
-  Key, LayoutGrid, CreditCard, User, LogOut, MessageCircle, QrCode,
-  Clock, CalendarX, ChevronRight, Wrench, Settings, Users, Code,
-  Megaphone, Eye, Save, Trash2, Zap, ShieldAlert
-} from 'lucide-react';
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
+    <!-- Meta Tags PWA y SEO -->
+    <title>MemberApp Bolivia</title>
+    <meta name="description" content="Ecosistema digital exclusivo para negocios en Bolivia.">
+    <meta name="theme-color" content="#4f46e5">
+    
+    <!-- Meta Tags iOS -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MemberApp">
+    <link rel="apple-touch-icon" href="./icon-192.png">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="./manifest.json">
 
-// ==========================================
-// 1. SISTEMA DE ALMACENAMIENTO Y UTILIDADES
-// ==========================================
-window.DB = {
-  get: (key) => {
-    try {
-      const item = localStorage.getItem(`memberapp_${key}`);
-      return item ? JSON.parse(item) : null;
-    } catch (e) { return null; }
-  },
-  set: (key, data) => {
-    try { localStorage.setItem(`memberapp_${key}`, JSON.stringify(data)); } catch (e) {}
-  },
-  init: () => {
-    if (!window.DB.get('users')) window.DB.set('users', []);
-    if (!window.DB.get('admin')) window.DB.set('admin', { pwd: btoa('admin123') });
-    if (!window.DB.get('apps')) window.DB.set('apps', []);
-    if (!window.DB.get('settings')) {
-      window.DB.set('settings', { qrUrl: '', monthlyFee: 150, adminPhone: '59177066695', announcement: '' });
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: { extend: { colors: { primary: '#4f46e5', success: '#10b981' } } }
+      }
+    </script>
+
+    <!-- Import Maps para React y Lucide -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0"
+      }
     }
-  }
-};
-
-const getDeviceId = () => {
-  let deviceId = localStorage.getItem('memberapp_device_id');
-  if (!deviceId) {
-    deviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
-    localStorage.setItem('memberapp_device_id', deviceId);
-  }
-  return deviceId;
-};
-
-const generateUniquePIN = () => {
-  const users = window.DB.get('users') || [];
-  let pin;
-  let exists = true;
-  while(exists) {
-    pin = Math.floor(10000 + Math.random() * 90000).toString();
-    exists = users.some(u => u.pin === pin);
-  }
-  return pin;
-};
-
-// ==========================================
-// 2. COMPONENTE: TUTORIAL IOS
-// ==========================================
-const IosInstallBanner = () => {
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
-    const isInStandaloneMode = () => ('standalone' in window.navigator) && (window.navigator.standalone);
-    if (isIos() && !isInStandaloneMode() && !sessionStorage.getItem('ios_banner_closed')) setShow(true);
-  }, []);
-
-  if (!show) return null;
-  return (
-    <div className="fixed bottom-0 left-0 right-0 p-4 z-50 fade-in">
-      <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-2xl relative border border-slate-700">
-        <button onClick={() => { setShow(false); sessionStorage.setItem('ios_banner_closed', 'true'); }} className="absolute top-2 right-2 p-2 text-slate-400 hover:text-white"><X size={20} /></button>
-        <div className="flex items-center gap-3 mb-3"><div className="bg-indigo-500/20 p-2 rounded-lg text-indigo-400"><Smartphone size={24} /></div><h3 className="font-semibold text-lg">Instala MemberApp</h3></div>
-        <p className="text-sm text-slate-300 mb-4">Para acceso en pantalla completa sin internet:</p>
-        <ol className="text-sm text-slate-300 space-y-3 bg-slate-800 p-4 rounded-xl">
-          <li className="flex items-center gap-3"><span className="bg-indigo-600 w-6 h-6 rounded-full flex justify-center items-center text-xs">1</span>Toca <strong>Compartir</strong> <Share size={16} className="text-blue-400 inline mx-1" /> abajo.</li>
-          <li className="flex items-center gap-3"><span className="bg-indigo-600 w-6 h-6 rounded-full flex justify-center items-center text-xs">2</span>Selecciona <strong>Agregar a inicio</strong> <PlusSquare size={16} className="text-slate-300 inline mx-1" /></li>
-        </ol>
-      </div>
-    </div>
-  );
-};
-
-// ==========================================
-// 3. COMPONENTE: PANEL DEL CLIENTE
-// ==========================================
-const DashboardView = ({ user, onLogout, isAdminPreview = false }) => {
-  const [activeTab, setActiveTab] = useState('tools');
-  const [apps, setApps] = useState([]);
-  const [settings, setSettings] = useState({});
-  const [selectedApp, setSelectedApp] = useState(null);
-  const [showWaMenu, setShowWaMenu] = useState(false);
-  const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0, expired: false });
-
-  useEffect(() => {
-    setApps(window.DB.get('apps') || []);
-    setSettings(window.DB.get('settings') || {});
-
-    const calculateTime = () => {
-      if (!user.expirationDate) return { expired: true };
-      const diff = new Date(user.expirationDate).getTime() - new Date().getTime();
-      if (diff <= 0) return { expired: true, days: 0, hours: 0, minutes: 0, seconds: 0 };
-      return {
-        expired: false,
-        days: Math.floor(diff / (1000 * 60 * 60 * 24)),
-        hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
-        minutes: Math.floor((diff / 1000 / 60) % 60),
-        seconds: Math.floor((diff / 1000) % 60)
-      };
-    };
-
-    const currentStatus = calculateTime();
-    setTimeLeft(currentStatus);
+    </script>
     
-    // El administrador nunca se bloquea
-    const effectivelyLocked = isAdminPreview ? false : (currentStatus.expired || user.status === 'Inactivo');
-    if (effectivelyLocked) setActiveTab('subscription');
+    <!-- Babel para compilar JSX en el navegador -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    const timer = setInterval(() => setTimeLeft(calculateTime()), 1000);
-    return () => clearInterval(timer);
-  }, [user, isAdminPreview]);
+    <style>
+      body { overscroll-behavior-y: none; -webkit-tap-highlight-color: transparent; }
+      .fade-in { animation: fadeIn 0.4s ease-in-out; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-indigo-100 min-h-screen flex flex-col">
+    
+    <!-- Contenedor Raíz de React -->
+    <div id="root" class="flex-1 w-full max-w-md mx-auto bg-white shadow-xl min-h-screen relative overflow-hidden"></div>
 
-  const openWhatsApp = (type) => {
-    const adminPhone = settings.adminPhone || '59177066695';
-    let msg = type === 'pago' ? `Hola MemberApp Bolivia 👋, solicito mi PIN. Nombre: ${user.fullName} Negocio: ${user.businessName} Rubro: ${user.niche}. Por favor verificar pago y confirmarme el PIN.` :
-              type === 'soporte' ? `👋 Hola, necesito soporte técnico para el negocio ${user.businessName}...` :
-              `Hola MemberApp Bolivia 👋, soy de ${user.businessName} y solicito una Mini-App personalizada...`;
-    window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(msg)}`, '_blank');
-    setShowWaMenu(false);
-  };
+    <!-- CÓDIGO COMPLETO DE LA APLICACIÓN (Partes 1 a 4 fusionadas) -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { 
+            Share, PlusSquare, X, Smartphone, ShieldCheck, Lock, UserCheck, 
+            CheckCircle, AlertCircle, Building, Phone, ArrowRight, UserPlus, 
+            Key, LayoutGrid, CreditCard, User, LogOut, MessageCircle, QrCode,
+            Clock, CalendarX, ChevronRight, Wrench, Settings, Users, Code,
+            Megaphone, Eye, Save, Trash2, Zap, ShieldAlert
+        } from 'lucide-react';
 
-  const isLocked = isAdminPreview ? false : (timeLeft.expired || user.status === 'Inactivo');
+        // ==========================================
+        // 1. SISTEMA DE ALMACENAMIENTO Y UTILIDADES
+        // ==========================================
+        window.DB = {
+            get: (key) => {
+                try {
+                    const item = localStorage.getItem(`memberapp_${key}`);
+                    return item ? JSON.parse(item) : null;
+                } catch (e) { return null; }
+            },
+            set: (key, data) => {
+                try { localStorage.setItem(`memberapp_${key}`, JSON.stringify(data)); } catch (e) {}
+            },
+            init: () => {
+                if (!window.DB.get('users')) window.DB.set('users', []);
+                if (!window.DB.get('admin')) window.DB.set('admin', { pwd: btoa('admin123') });
+                if (!window.DB.get('apps')) window.DB.set('apps', []);
+                if (!window.DB.get('settings')) {
+                    window.DB.set('settings', { qrUrl: '', monthlyFee: 150, adminPhone: '59177066695', announcement: '' });
+                }
+            }
+        };
 
-  return (
-    <div className="flex flex-col h-full bg-slate-50 w-full rounded-b-[2rem] overflow-hidden relative">
-      
-      {/* Banner de Administrador (Salir de Preview) */}
-      {isAdminPreview && (
-        <div className="bg-indigo-900 text-white p-3 text-center text-sm font-bold flex justify-between items-center z-50">
-          <span className="flex items-center gap-2"><Eye size={16}/> Modo Previsualización</span>
-          <button onClick={onLogout} className="bg-white/20 px-3 py-1 rounded-lg hover:bg-white/30 transition">Volver al Panel</button>
-        </div>
-      )}
+        const getDeviceId = () => {
+            let deviceId = localStorage.getItem('memberapp_device_id');
+            if (!deviceId) {
+                deviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+                localStorage.setItem('memberapp_device_id', deviceId);
+            }
+            return deviceId;
+        };
 
-      {/* Panel de Anuncios */}
-      {settings.announcement && (
-        <div className="bg-amber-100 text-amber-900 p-3 text-sm flex items-start gap-3 border-b border-amber-200">
-          <Megaphone size={18} className="shrink-0 mt-0.5 text-amber-600" />
-          <p className="leading-tight font-medium">{settings.announcement}</p>
-        </div>
-      )}
+        const generateUniquePIN = () => {
+            const users = window.DB.get('users') || [];
+            let pin;
+            let exists = true;
+            while(exists) {
+                pin = Math.floor(10000 + Math.random() * 90000).toString();
+                exists = users.some(u => u.pin === pin);
+            }
+            return pin;
+        };
 
-      <div className="flex-1 overflow-y-auto p-5 pb-24 fade-in">
-        
-        {/* HERRAMIENTAS */}
-        {activeTab === 'tools' && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><LayoutGrid className="text-indigo-600" /> Mis Herramientas</h2>
-            {isLocked ? (
-              <div className="bg-red-50 p-6 rounded-2xl border border-red-100 text-center">
-                <CalendarX size={48} className="text-red-400 mx-auto mb-3" />
-                <h3 className="font-bold text-red-800 mb-2">Suscripción Vencida</h3>
-                <button onClick={() => setActiveTab('subscription')} className="bg-red-600 text-white font-bold py-2 px-6 rounded-xl w-full">Ir a Pago</button>
-              </div>
-            ) : apps.length === 0 ? (
-              <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center shadow-sm">
-                <Wrench size={48} className="text-slate-300 mx-auto mb-3" />
-                <h3 className="font-bold text-slate-700">Aún no hay herramientas</h3>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-4">
-                {apps.map((app, idx) => (
-                  <div key={idx} onClick={() => setSelectedApp(app)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center text-center cursor-pointer hover:border-indigo-500 active:scale-95 transition-all">
-                    <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center mb-3 text-indigo-600"><LayoutGrid size={24} /></div>
-                    <h4 className="font-bold text-sm text-slate-800 line-clamp-2">{app.name}</h4>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        // ==========================================
+        // 2. COMPONENTE: TUTORIAL IOS
+        // ==========================================
+        const IosInstallBanner = () => {
+            const [show, setShow] = useState(false);
+            useEffect(() => {
+                const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+                const isInStandaloneMode = () => ('standalone' in window.navigator) && (window.navigator.standalone);
+                if (isIos() && !isInStandaloneMode() && !sessionStorage.getItem('ios_banner_closed')) setShow(true);
+            }, []);
 
-        {/* PAGO Y SUSCRIPCIÓN */}
-        {activeTab === 'subscription' && (
-          <div className="space-y-5">
-            <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2"><CreditCard className="text-indigo-600" /> Membresía</h2>
-            <div className={`p-5 rounded-2xl shadow-sm border ${isLocked ? 'bg-red-600 text-white border-red-700' : 'bg-indigo-600 text-white border-indigo-700'}`}>
-              <div className="flex justify-between items-center mb-3">
-                <span className="font-bold text-sm uppercase tracking-wider opacity-90">{isLocked ? 'Suscripción Vencida' : 'Tiempo Restante'}</span>
-                <Clock size={20} className="opacity-80" />
-              </div>
-              {!isLocked ? (
-                <div className="grid grid-cols-4 gap-2 text-center">
-                  <div className="bg-white/20 rounded-lg p-2"><span className="block text-2xl font-bold">{timeLeft.days}</span><span className="text-[10px] uppercase">Días</span></div>
-                  <div className="bg-white/20 rounded-lg p-2"><span className="block text-2xl font-bold">{timeLeft.hours}</span><span className="text-[10px] uppercase">Hrs</span></div>
-                  <div className="bg-white/20 rounded-lg p-2"><span className="block text-2xl font-bold">{timeLeft.minutes}</span><span className="text-[10px] uppercase">Min</span></div>
-                  <div className="bg-white/20 rounded-lg p-2"><span className="block text-2xl font-bold">{timeLeft.seconds}</span><span className="text-[10px] uppercase">Seg</span></div>
-                </div>
-              ) : <p className="text-sm opacity-90">Renueva tu suscripción para volver a acceder a tus herramientas.</p>}
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
-              <h3 className="font-bold text-slate-700 mb-1">Renovación Mensual</h3>
-              <p className="text-slate-500 text-sm mb-4">Costo: Bs. {settings.monthlyFee || '150'}</p>
-              <div className="w-48 h-48 bg-slate-100 rounded-xl mx-auto flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 mb-4">
-                {settings.qrUrl ? <img src={settings.qrUrl} alt="QR" className="w-full h-full object-cover" /> : <QrCode size={40} className="opacity-50" />}
-              </div>
-              <button onClick={() => openWhatsApp('pago')} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md">
-                <MessageCircle size={18} /> Notificar Pago
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* MI PERFIL */}
-        {activeTab === 'account' && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><User className="text-indigo-600" /> Mi Perfil</h2>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
-              <div className={`absolute top-0 right-0 px-4 py-1.5 rounded-bl-xl text-xs font-bold text-white shadow-sm ${user.status === 'Activo' || isAdminPreview ? 'bg-emerald-500' : user.status === 'Inactivo' ? 'bg-red-500' : 'bg-amber-500'}`}>
-                {isAdminPreview ? 'ADMIN' : user.status === 'Activo' ? 'ACTIVA' : user.status}
-              </div>
-              <div className="flex items-center gap-4 mb-6 pt-4">
-                <div className="w-14 h-14 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xl font-bold">{user.fullName.charAt(0).toUpperCase()}</div>
-                <div><h3 className="font-bold text-slate-800 text-lg">{user.fullName}</h3><p className="text-slate-500 text-sm flex items-center gap-1"><Building size={14}/> {user.businessName}</p></div>
-              </div>
-              {!isAdminPreview && (
-                <button onClick={onLogout} className="w-full bg-red-50 text-red-600 font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 transition-all border border-red-100">
-                  <LogOut size={18} /> Cerrar Sesión
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* BOTTOM NAV */}
-      <div className="bg-white border-t border-slate-200 p-2 pb-4 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)] fixed bottom-0 w-full max-w-md z-40 rounded-b-none lg:rounded-b-[2rem] lg:relative lg:pb-2">
-        <div className="flex justify-around items-center">
-          <button onClick={() => setActiveTab('tools')} className={`flex flex-col items-center p-2 transition-colors ${activeTab === 'tools' ? 'text-indigo-600' : 'text-slate-400'}`}><LayoutGrid size={24} /><span className="text-[10px] font-bold mt-1">Apps</span></button>
-          <button onClick={() => setShowWaMenu(true)} className="relative -top-5 bg-indigo-600 text-white p-4 rounded-full shadow-lg shadow-indigo-300 hover:scale-105 active:scale-95 transition-all"><MessageCircle size={28} /></button>
-          <button onClick={() => setActiveTab('subscription')} className={`flex flex-col items-center p-2 transition-colors ${activeTab === 'subscription' ? 'text-indigo-600' : 'text-slate-400'}`}><CreditCard size={24} /><span className="text-[10px] font-bold mt-1">Pago</span></button>
-          <button onClick={() => setActiveTab('account')} className={`flex flex-col items-center p-2 transition-colors ${activeTab === 'account' ? 'text-indigo-600' : 'text-slate-400'}`}><User size={24} /><span className="text-[10px] font-bold mt-1">Perfil</span></button>
-        </div>
-      </div>
-
-      {/* ACTION SHEET WHATSAPP MENU */}
-      {showWaMenu && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm fade-in">
-          <div className="bg-white w-full max-w-md rounded-t-3xl p-6 shadow-2xl">
-            <div className="flex justify-between items-center mb-5"><h3 className="font-bold text-lg text-slate-800">Centro de Ayuda</h3><button onClick={() => setShowWaMenu(false)} className="bg-slate-100 p-2 rounded-full"><X size={18}/></button></div>
-            <div className="space-y-3">
-               <button onClick={() => openWhatsApp('soporte')} className="w-full flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
-                <div className="flex items-center gap-3"><div className="bg-blue-100 text-blue-600 p-2 rounded-xl"><Wrench size={20}/></div><div className="text-left"><span className="block font-bold text-slate-700 text-sm">Soporte Técnico</span></div></div><ChevronRight size={18} className="text-slate-400" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL APP */}
-      {selectedApp && (
-        <div className="fixed inset-0 z-[60] bg-white flex flex-col fade-in">
-          <header className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md">
-            <h2 className="font-bold text-sm truncate flex-1">{selectedApp.name}</h2>
-            <button onClick={() => setSelectedApp(null)} className="bg-slate-800 p-2 rounded-xl hover:bg-slate-700"><X size={20} /> Cerrar</button>
-          </header>
-          <iframe srcDoc={selectedApp.html} className="w-full flex-1 border-0 bg-slate-50" sandbox="allow-scripts allow-same-origin allow-forms" title={selectedApp.name}/>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ==========================================
-// 4. COMPONENTE: PANEL DE ADMINISTRADOR (PARTE 4)
-// ==========================================
-const AdminDashboard = ({ onPreviewMode, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('clientes');
-  const [users, setUsers] = useState([]);
-  const [apps, setApps] = useState([]);
-  const [settings, setSettings] = useState({});
-  const [alert, setAlert] = useState({ type: '', msg: '' });
-
-  // Formularios
-  const [appForm, setAppForm] = useState({ name: '', html: '' });
-  const [adminPwd, setAdminPwd] = useState('');
-  
-  useEffect(() => { loadData(); }, []);
-
-  const loadData = () => {
-    setUsers(window.DB.get('users') || []);
-    setApps(window.DB.get('apps') || []);
-    setSettings(window.DB.get('settings') || {});
-  };
-
-  const showAlert = (type, msg) => {
-    setAlert({ type, msg });
-    setTimeout(() => setAlert({ type: '', msg: '' }), 4000);
-  };
-
-  // Guardar Ajustes Generales
-  const saveSettings = (key, value, successMsg) => {
-    const newSettings = { ...settings, [key]: value };
-    window.DB.set('settings', newSettings);
-    setSettings(newSettings);
-    showAlert('success', successMsg);
-  };
-
-  // Cambiar Contraseña
-  const handlePwdChange = (e) => {
-    e.preventDefault();
-    if(adminPwd.length < 4) return showAlert('error', 'La contraseña debe ser más larga.');
-    window.DB.set('admin', { pwd: btoa(adminPwd) });
-    setAdminPwd('');
-    showAlert('success', 'Contraseña maestra actualizada.');
-  };
-
-  // Inyectar Mini-App
-  const handleInjectApp = (e) => {
-    e.preventDefault();
-    if (!appForm.name || !appForm.html) return showAlert('error', 'Completa ambos campos.');
-    const newApps = [...apps, appForm];
-    window.DB.set('apps', newApps);
-    setApps(newApps);
-    setAppForm({ name: '', html: '' });
-    showAlert('success', 'Mini-App inyectada con éxito.');
-  };
-
-  // Acciones sobre Usuarios
-  const updateUserStatus = (userId, daysToAdd, newStatus) => {
-    const updated = users.map(u => {
-      if (u.id === userId) {
-        let baseDate = new Date();
-        // Si ya está activo y tiene fecha futura, sumamos a esa fecha. Si no, desde hoy.
-        if (u.expirationDate && new Date(u.expirationDate) > baseDate && newStatus === 'Activo') {
-          baseDate = new Date(u.expirationDate);
-        }
-        baseDate.setDate(baseDate.getDate() + daysToAdd);
-        return { ...u, status: newStatus, expirationDate: daysToAdd > 0 ? baseDate.toISOString() : u.expirationDate };
-      }
-      return u;
-    });
-    window.DB.set('users', updated);
-    setUsers(updated);
-    showAlert('success', `Usuario ${newStatus}. +${daysToAdd} días.`);
-  };
-
-  const deactivateUser = (userId) => {
-    const updated = users.map(u => u.id === userId ? { ...u, status: 'Inactivo' } : u);
-    window.DB.set('users', updated);
-    setUsers(updated);
-    showAlert('success', 'Usuario inactivado.');
-  };
-
-  const generatePinForUser = (userId) => {
-    const updated = users.map(u => {
-      if (u.id === userId) {
-        if (!u.pin) u.pin = generateUniquePIN();
-        return u;
-      }
-      return u;
-    });
-    window.DB.set('users', updated);
-    setUsers(updated);
-    showAlert('success', 'PIN generado y asignado al usuario.');
-  };
-
-  return (
-    <div className="flex flex-col h-full bg-slate-900 text-white w-full rounded-b-[2rem] overflow-hidden">
-      
-      {/* HEADER ADMIN */}
-      <div className="p-5 border-b border-slate-800 bg-slate-900 z-10 flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-bold flex items-center gap-2 text-indigo-400"><ShieldCheck /> Centro de Mando</h2>
-          <p className="text-xs text-slate-400">Control total del ecosistema</p>
-        </div>
-        <button onClick={onLogout} className="p-2 bg-slate-800 rounded-xl hover:bg-red-500/20 hover:text-red-400 transition"><LogOut size={20}/></button>
-      </div>
-
-      {/* TABS ADMIN */}
-      <div className="flex bg-slate-800 p-1 mx-5 mt-4 rounded-xl">
-        <button onClick={() => setActiveTab('clientes')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${activeTab === 'clientes' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>Clientes</button>
-        <button onClick={() => setActiveTab('sistema')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${activeTab === 'sistema' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>Sistema</button>
-        <button onClick={() => setActiveTab('apps')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${activeTab === 'apps' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>Apps</button>
-      </div>
-
-      {alert.msg && (
-        <div className={`mx-5 mt-4 p-3 rounded-xl text-sm font-bold flex items-center gap-2 ${alert.type === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'}`}>
-          {alert.type === 'error' ? <ShieldAlert size={18}/> : <CheckCircle size={18}/>} {alert.msg}
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto p-5 pb-10 fade-in space-y-6">
-        
-        {/* TAB 1: CLIENTES */}
-        {activeTab === 'clientes' && (
-          <div className="space-y-4">
-            <h3 className="font-bold flex items-center gap-2 text-slate-300"><Users size={18}/> Base de Datos ({users.length})</h3>
-            {users.length === 0 ? <p className="text-slate-500 text-sm">No hay clientes registrados aún.</p> : null}
-            
-            <div className="space-y-3">
-              {users.slice().reverse().map(u => (
-                <div key={u.id} className="bg-slate-800 p-4 rounded-2xl border border-slate-700">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <h4 className="font-bold text-white">{u.fullName}</h4>
-                      <p className="text-xs text-slate-400">{u.businessName} • {u.whatsapp}</p>
+            if (!show) return null;
+            return (
+                <div className="fixed bottom-0 left-0 right-0 p-4 z-50 fade-in">
+                    <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-2xl relative border border-slate-700">
+                        <button onClick={() => { setShow(false); sessionStorage.setItem('ios_banner_closed', 'true'); }} className="absolute top-2 right-2 p-2 text-slate-400 hover:text-white"><X size={20} /></button>
+                        <div className="flex items-center gap-3 mb-3"><div className="bg-indigo-500/20 p-2 rounded-lg text-indigo-400"><Smartphone size={24} /></div><h3 className="font-semibold text-lg">Instala MemberApp</h3></div>
+                        <p className="text-sm text-slate-300 mb-4">Para acceso en pantalla completa sin internet:</p>
+                        <ol className="text-sm text-slate-300 space-y-3 bg-slate-800 p-4 rounded-xl">
+                            <li className="flex items-center gap-3"><span className="bg-indigo-600 w-6 h-6 rounded-full flex justify-center items-center text-xs">1</span>Toca <strong>Compartir</strong> <Share size={16} className="text-blue-400 inline mx-1" /> abajo.</li>
+                            <li className="flex items-center gap-3"><span className="bg-indigo-600 w-6 h-6 rounded-full flex justify-center items-center text-xs">2</span>Selecciona <strong>Agregar a inicio</strong> <PlusSquare size={16} className="text-slate-300 inline mx-1" /></li>
+                        </ol>
                     </div>
-                    <span className={`text-[10px] px-2 py-1 rounded-md font-bold uppercase ${u.status === 'Activo' ? 'bg-emerald-500/20 text-emerald-400' : u.status === 'Pendiente' ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>
-                      {u.status}
-                    </span>
-                  </div>
-                  
-                  <div className="bg-slate-900/50 p-2 rounded-lg text-xs text-slate-400 mb-3 flex justify-between items-center">
-                    <span>Vence: {u.expirationDate ? new Date(u.expirationDate).toLocaleDateString() : 'N/A'}</span>
-                    {u.pin ? <span className="font-mono bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded">PIN: {u.pin}</span> : null}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    {!u.pin && <button onClick={() => generatePinForUser(u.id)} className="col-span-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded-xl">Generar PIN de Acceso</button>}
-                    <button onClick={() => updateUserStatus(u.id, 7, 'Activo')} className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 text-xs font-bold py-2 rounded-xl">+ 7 Días (Gratis)</button>
-                    <button onClick={() => updateUserStatus(u.id, 30, 'Activo')} className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 text-xs font-bold py-2 rounded-xl">+ 30 Días (Pago)</button>
-                    {u.status !== 'Inactivo' && <button onClick={() => deactivateUser(u.id)} className="col-span-2 bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 text-xs font-bold py-2 rounded-xl">Inactivar Usuario</button>}
-                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+            );
+        };
 
-        {/* TAB 2: SISTEMA Y ANUNCIOS */}
-        {activeTab === 'sistema' && (
-          <div className="space-y-6">
-            <button onClick={onPreviewMode} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl flex justify-center items-center gap-2 shadow-lg shadow-indigo-900">
-              <Eye size={18}/> Ver App como Cliente
-            </button>
+        // ==========================================
+        // 3. COMPONENTE: PANEL DEL CLIENTE
+        // ==========================================
+        const DashboardView = ({ user, onLogout, isAdminPreview = false }) => {
+            const [activeTab, setActiveTab] = useState('tools');
+            const [apps, setApps] = useState([]);
+            const [settings, setSettings] = useState({});
+            const [selectedApp, setSelectedApp] = useState(null);
+            const [showWaMenu, setShowWaMenu] = useState(false);
+            const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0, expired: false });
 
-            <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
-              <h3 className="font-bold flex items-center gap-2"><Megaphone size={18} className="text-amber-400"/> Panel de Anuncios</h3>
-              <textarea value={settings.announcement || ''} onChange={(e) => setSettings({...settings, announcement: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none text-white h-24 placeholder-slate-500" placeholder="Mensaje visible para todos los clientes..."></textarea>
-              <button onClick={() => saveSettings('announcement', settings.announcement, 'Anuncio publicado.')} className="bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold py-2 px-4 rounded-xl w-full">Publicar Anuncio</button>
-            </div>
+            useEffect(() => {
+                setApps(window.DB.get('apps') || []);
+                setSettings(window.DB.get('settings') || {});
 
-            <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
-              <h3 className="font-bold flex items-center gap-2"><QrCode size={18} className="text-indigo-400"/> Configurar Pago</h3>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Precio Mensual (Bs.)</label>
-                <input type="number" value={settings.monthlyFee || ''} onChange={(e) => setSettings({...settings, monthlyFee: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white" />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">URL / Base64 de la imagen QR</label>
-                <input type="text" value={settings.qrUrl || ''} onChange={(e) => setSettings({...settings, qrUrl: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white" placeholder="https://..." />
-              </div>
-              <button onClick={() => {saveSettings('qrUrl', settings.qrUrl, 'QR guardado'); saveSettings('monthlyFee', settings.monthlyFee, 'Precio guardado');}} className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold py-2 px-4 rounded-xl w-full">Guardar Configuración</button>
-            </div>
+                const calculateTime = () => {
+                    if (!user.expirationDate) return { expired: true };
+                    const diff = new Date(user.expirationDate).getTime() - new Date().getTime();
+                    if (diff <= 0) return { expired: true, days: 0, hours: 0, minutes: 0, seconds: 0 };
+                    return {
+                        expired: false,
+                        days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+                        hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
+                        minutes: Math.floor((diff / 1000 / 60) % 60),
+                        seconds: Math.floor((diff / 1000) % 60)
+                    };
+                };
 
-            <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
-              <h3 className="font-bold flex items-center gap-2"><Lock size={18} className="text-red-400"/> Seguridad</h3>
-              <form onSubmit={handlePwdChange} className="flex gap-2">
-                <input type="password" value={adminPwd} onChange={(e)=>setAdminPwd(e.target.value)} placeholder="Nueva contraseña maestra" className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white" />
-                <button type="submit" className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-xl">Cambiar</button>
-              </form>
-            </div>
-          </div>
-        )}
+                const currentStatus = calculateTime();
+                setTimeLeft(currentStatus);
+                
+                const effectivelyLocked = isAdminPreview ? false : (currentStatus.expired || user.status === 'Inactivo');
+                if (effectivelyLocked) setActiveTab('subscription');
 
-        {/* TAB 3: INYECTOR DE APPS */}
-        {activeTab === 'apps' && (
-          <div className="space-y-6">
-            <div className="bg-indigo-900/30 border border-indigo-500/30 p-5 rounded-2xl">
-              <h3 className="font-bold flex items-center gap-2 text-indigo-400 mb-4"><Zap size={18}/> Inyector de Mini-Apps</h3>
-              <form onSubmit={handleInjectApp} className="space-y-4">
-                <input type="text" value={appForm.name} onChange={(e) => setAppForm({...appForm, name: e.target.value})} placeholder="Nombre de la Herramienta" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white" />
-                <textarea value={appForm.html} onChange={(e) => setAppForm({...appForm, html: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white h-48 font-mono placeholder-slate-600" placeholder="Pega aquí el HTML completo de la Mini-App..."></textarea>
-                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl flex justify-center items-center gap-2 shadow-lg">
-                  <Code size={18}/> Inyectar y Publicar
-                </button>
-              </form>
-            </div>
+                const timer = setInterval(() => setTimeLeft(calculateTime()), 1000);
+                return () => clearInterval(timer);
+            }, [user, isAdminPreview]);
 
-            <div className="space-y-3">
-              <h3 className="font-bold text-slate-300 text-sm">Apps Instaladas ({apps.length})</h3>
-              {apps.map((app, i) => (
-                <div key={i} className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex justify-between items-center">
-                  <span className="font-bold text-sm text-white">{app.name}</span>
-                  <button onClick={() => {
-                    const newApps = apps.filter((_, index) => index !== i);
-                    window.DB.set('apps', newApps); setApps(newApps); showAlert('success', 'App eliminada');
-                  }} className="text-slate-400 hover:text-red-400"><Trash2 size={18}/></button>
+            const openWhatsApp = (type) => {
+                const adminPhone = settings.adminPhone || '59177066695';
+                let msg = type === 'pago' ? `Hola MemberApp Bolivia 👋, solicito mi PIN. Nombre: ${user.fullName} Negocio: ${user.businessName} Rubro: ${user.niche}. Por favor verificar pago y confirmarme el PIN.` :
+                          type === 'soporte' ? `👋 Hola, necesito soporte técnico para el negocio ${user.businessName}...` :
+                          `Hola MemberApp Bolivia 👋, soy de ${user.businessName} y solicito una Mini-App personalizada...`;
+                window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+                setShowWaMenu(false);
+            };
+
+            const isLocked = isAdminPreview ? false : (timeLeft.expired || user.status === 'Inactivo');
+
+            return (
+                <div className="flex flex-col h-full bg-slate-50 w-full rounded-b-[2rem] overflow-hidden relative">
+                    {isAdminPreview && (
+                        <div className="bg-indigo-900 text-white p-3 text-center text-sm font-bold flex justify-between items-center z-50">
+                            <span className="flex items-center gap-2"><Eye size={16}/> Modo Previsualización</span>
+                            <button onClick={onLogout} className="bg-white/20 px-3 py-1 rounded-lg hover:bg-white/30 transition">Volver al Panel</button>
+                        </div>
+                    )}
+                    {settings.announcement && (
+                        <div className="bg-amber-100 text-amber-900 p-3 text-sm flex items-start gap-3 border-b border-amber-200">
+                            <Megaphone size={18} className="shrink-0 mt-0.5 text-amber-600" />
+                            <p className="leading-tight font-medium">{settings.announcement}</p>
+                        </div>
+                    )}
+                    <div className="flex-1 overflow-y-auto p-5 pb-24 fade-in">
+                        {activeTab === 'tools' && (
+                            <div className="space-y-4">
+                                <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><LayoutGrid className="text-indigo-600" /> Mis Herramientas</h2>
+                                {isLocked ? (
+                                    <div className="bg-red-50 p-6 rounded-2xl border border-red-100 text-center">
+                                        <CalendarX size={48} className="text-red-400 mx-auto mb-3" />
+                                        <h3 className="font-bold text-red-800 mb-2">Suscripción Vencida</h3>
+                                        <button onClick={() => setActiveTab('subscription')} className="bg-red-600 text-white font-bold py-2 px-6 rounded-xl w-full">Ir a Pago</button>
+                                    </div>
+                                ) : apps.length === 0 ? (
+                                    <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center shadow-sm">
+                                        <Wrench size={48} className="text-slate-300 mx-auto mb-3" />
+                                        <h3 className="font-bold text-slate-700">Aún no hay herramientas</h3>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {apps.map((app, idx) => (
+                                            <div key={idx} onClick={() => setSelectedApp(app)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center text-center cursor-pointer hover:border-indigo-500 active:scale-95 transition-all">
+                                                <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center mb-3 text-indigo-600"><LayoutGrid size={24} /></div>
+                                                <h4 className="font-bold text-sm text-slate-800 line-clamp-2">{app.name}</h4>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {activeTab === 'subscription' && (
+                            <div className="space-y-5">
+                                <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2"><CreditCard className="text-indigo-600" /> Membresía</h2>
+                                <div className={`p-5 rounded-2xl shadow-sm border ${isLocked ? 'bg-red-600 text-white border-red-700' : 'bg-indigo-600 text-white border-indigo-700'}`}>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <span className="font-bold text-sm uppercase tracking-wider opacity-90">{isLocked ? 'Suscripción Vencida' : 'Tiempo Restante'}</span>
+                                        <Clock size={20} className="opacity-80" />
+                                    </div>
+                                    {!isLocked ? (
+                                        <div className="grid grid-cols-4 gap-2 text-center">
+                                            <div className="bg-white/20 rounded-lg p-2"><span className="block text-2xl font-bold">{timeLeft.days}</span><span className="text-[10px] uppercase">Días</span></div>
+                                            <div className="bg-white/20 rounded-lg p-2"><span className="block text-2xl font-bold">{timeLeft.hours}</span><span className="text-[10px] uppercase">Hrs</span></div>
+                                            <div className="bg-white/20 rounded-lg p-2"><span className="block text-2xl font-bold">{timeLeft.minutes}</span><span className="text-[10px] uppercase">Min</span></div>
+                                            <div className="bg-white/20 rounded-lg p-2"><span className="block text-2xl font-bold">{timeLeft.seconds}</span><span className="text-[10px] uppercase">Seg</span></div>
+                                        </div>
+                                    ) : <p className="text-sm opacity-90">Renueva tu suscripción para volver a acceder a tus herramientas.</p>}
+                                </div>
+                                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+                                    <h3 className="font-bold text-slate-700 mb-1">Renovación Mensual</h3>
+                                    <p className="text-slate-500 text-sm mb-4">Costo: Bs. {settings.monthlyFee || '150'}</p>
+                                    <div className="w-48 h-48 bg-slate-100 rounded-xl mx-auto flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 mb-4">
+                                        {settings.qrUrl ? <img src={settings.qrUrl} alt="QR" className="w-full h-full object-cover" /> : <QrCode size={40} className="opacity-50" />}
+                                    </div>
+                                    <button onClick={() => openWhatsApp('pago')} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md">
+                                        <MessageCircle size={18} /> Notificar Pago
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {activeTab === 'account' && (
+                            <div className="space-y-4">
+                                <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><User className="text-indigo-600" /> Mi Perfil</h2>
+                                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
+                                    <div className={`absolute top-0 right-0 px-4 py-1.5 rounded-bl-xl text-xs font-bold text-white shadow-sm ${user.status === 'Activo' || isAdminPreview ? 'bg-emerald-500' : user.status === 'Inactivo' ? 'bg-red-500' : 'bg-amber-500'}`}>
+                                        {isAdminPreview ? 'ADMIN' : user.status === 'Activo' ? 'ACTIVA' : user.status}
+                                    </div>
+                                    <div className="flex items-center gap-4 mb-6 pt-4">
+                                        <div className="w-14 h-14 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xl font-bold">{user.fullName.charAt(0).toUpperCase()}</div>
+                                        <div><h3 className="font-bold text-slate-800 text-lg">{user.fullName}</h3><p className="text-slate-500 text-sm flex items-center gap-1"><Building size={14}/> {user.businessName}</p></div>
+                                    </div>
+                                    {!isAdminPreview && (
+                                        <button onClick={onLogout} className="w-full bg-red-50 text-red-600 font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 transition-all border border-red-100">
+                                            <LogOut size={18} /> Cerrar Sesión
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    <div className="bg-white border-t border-slate-200 p-2 pb-4 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)] fixed bottom-0 w-full max-w-md z-40 rounded-b-none lg:rounded-b-[2rem] lg:relative lg:pb-2">
+                        <div className="flex justify-around items-center">
+                            <button onClick={() => setActiveTab('tools')} className={`flex flex-col items-center p-2 transition-colors ${activeTab === 'tools' ? 'text-indigo-600' : 'text-slate-400'}`}><LayoutGrid size={24} /><span className="text-[10px] font-bold mt-1">Apps</span></button>
+                            <button onClick={() => setShowWaMenu(true)} className="relative -top-5 bg-indigo-600 text-white p-4 rounded-full shadow-lg shadow-indigo-300 hover:scale-105 active:scale-95 transition-all"><MessageCircle size={28} /></button>
+                            <button onClick={() => setActiveTab('subscription')} className={`flex flex-col items-center p-2 transition-colors ${activeTab === 'subscription' ? 'text-indigo-600' : 'text-slate-400'}`}><CreditCard size={24} /><span className="text-[10px] font-bold mt-1">Pago</span></button>
+                            <button onClick={() => setActiveTab('account')} className={`flex flex-col items-center p-2 transition-colors ${activeTab === 'account' ? 'text-indigo-600' : 'text-slate-400'}`}><User size={24} /><span className="text-[10px] font-bold mt-1">Perfil</span></button>
+                        </div>
+                    </div>
+                    {showWaMenu && (
+                        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm fade-in">
+                            <div className="bg-white w-full max-w-md rounded-t-3xl p-6 shadow-2xl">
+                                <div className="flex justify-between items-center mb-5"><h3 className="font-bold text-lg text-slate-800">Centro de Ayuda</h3><button onClick={() => setShowWaMenu(false)} className="bg-slate-100 p-2 rounded-full"><X size={18}/></button></div>
+                                <div className="space-y-3">
+                                   <button onClick={() => openWhatsApp('soporte')} className="w-full flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                                    <div className="flex items-center gap-3"><div className="bg-blue-100 text-blue-600 p-2 rounded-xl"><Wrench size={20}/></div><div className="text-left"><span className="block font-bold text-slate-700 text-sm">Soporte Técnico</span></div></div><ChevronRight size={18} className="text-slate-400" />
+                                  </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {selectedApp && (
+                        <div className="fixed inset-0 z-[60] bg-white flex flex-col fade-in">
+                            <header className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md">
+                                <h2 className="font-bold text-sm truncate flex-1">{selectedApp.name}</h2>
+                                <button onClick={() => setSelectedApp(null)} className="bg-slate-800 p-2 rounded-xl hover:bg-slate-700"><X size={20} /> Cerrar</button>
+                            </header>
+                            <iframe srcDoc={selectedApp.html} className="w-full flex-1 border-0 bg-slate-50" sandbox="allow-scripts allow-same-origin allow-forms" title={selectedApp.name}/>
+                        </div>
+                    )}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+            );
+        };
 
-      </div>
-    </div>
-  );
-};
+        // ==========================================
+        // 4. COMPONENTE: PANEL DE ADMINISTRADOR
+        // ==========================================
+        const AdminDashboard = ({ onPreviewMode, onLogout }) => {
+            const [activeTab, setActiveTab] = useState('clientes');
+            const [users, setUsers] = useState([]);
+            const [apps, setApps] = useState([]);
+            const [settings, setSettings] = useState({});
+            const [alert, setAlert] = useState({ type: '', msg: '' });
+            const [appForm, setAppForm] = useState({ name: '', html: '' });
+            const [adminPwd, setAdminPwd] = useState('');
+            
+            useEffect(() => { loadData(); }, []);
+
+            const loadData = () => {
+                setUsers(window.DB.get('users') || []);
+                setApps(window.DB.get('apps') || []);
+                setSettings(window.DB.get('settings') || {});
+            };
+
+            const showAlert = (type, msg) => {
+                setAlert({ type, msg });
+                setTimeout(() => setAlert({ type: '', msg: '' }), 4000);
+            };
+
+            const saveSettings = (key, value, successMsg) => {
+                const newSettings = { ...settings, [key]: value };
+                window.DB.set('settings', newSettings);
+                setSettings(newSettings);
+                showAlert('success', successMsg);
+            };
+
+            const handlePwdChange = (e) => {
+                e.preventDefault();
+                if(adminPwd.length < 4) return showAlert('error', 'La contraseña debe ser más larga.');
+                window.DB.set('admin', { pwd: btoa(adminPwd) });
+                setAdminPwd('');
+                showAlert('success', 'Contraseña maestra actualizada.');
+            };
+
+            const handleInjectApp = (e) => {
+                e.preventDefault();
+                if (!appForm.name || !appForm.html) return showAlert('error', 'Completa ambos campos.');
+                const newApps = [...apps, appForm];
+                window.DB.set('apps', newApps);
+                setApps(newApps);
+                setAppForm({ name: '', html: '' });
+                showAlert('success', 'Mini-App inyectada con éxito.');
+            };
+
+            const updateUserStatus = (userId, daysToAdd, newStatus) => {
+                const updated = users.map(u => {
+                    if (u.id === userId) {
+                        let baseDate = new Date();
+                        if (u.expirationDate && new Date(u.expirationDate) > baseDate && newStatus === 'Activo') {
+                            baseDate = new Date(u.expirationDate);
+                        }
+                        baseDate.setDate(baseDate.getDate() + daysToAdd);
+                        return { ...u, status: newStatus, expirationDate: daysToAdd > 0 ? baseDate.toISOString() : u.expirationDate };
+                    }
+                    return u;
+                });
+                window.DB.set('users', updated);
+                setUsers(updated);
+                showAlert('success', `Usuario ${newStatus}. +${daysToAdd} días.`);
+            };
+
+            const deactivateUser = (userId) => {
+                const updated = users.map(u => u.id === userId ? { ...u, status: 'Inactivo' } : u);
+                window.DB.set('users', updated);
+                setUsers(updated);
+                showAlert('success', 'Usuario inactivado.');
+            };
+
+            const generatePinForUser = (userId) => {
+                const updated = users.map(u => {
+                    if (u.id === userId) {
+                        if (!u.pin) u.pin = generateUniquePIN();
+                        return u;
+                    }
+                    return u;
+                });
+                window.DB.set('users', updated);
+                setUsers(updated);
+                showAlert('success', 'PIN generado y asignado al usuario.');
+            };
+
+            return (
+                <div className="flex flex-col h-full bg-slate-900 text-white w-full rounded-b-[2rem] overflow-hidden">
+                    <div className="p-5 border-b border-slate-800 bg-slate-900 z-10 flex justify-between items-center">
+                        <div>
+                            <h2 className="text-xl font-bold flex items-center gap-2 text-indigo-400"><ShieldCheck /> Centro de Mando</h2>
+                            <p className="text-xs text-slate-400">Control total del ecosistema</p>
+                        </div>
+                        <button onClick={onLogout} className="p-2 bg-slate-800 rounded-xl hover:bg-red-500/20 hover:text-red-400 transition"><LogOut size={20}/></button>
+                    </div>
+                    <div className="flex bg-slate-800 p-1 mx-5 mt-4 rounded-xl">
+                        <button onClick={() => setActiveTab('clientes')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${activeTab === 'clientes' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>Clientes</button>
+                        <button onClick={() => setActiveTab('sistema')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${activeTab === 'sistema' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>Sistema</button>
+                        <button onClick={() => setActiveTab('apps')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${activeTab === 'apps' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>Apps</button>
+                    </div>
+                    {alert.msg && (
+                        <div className={`mx-5 mt-4 p-3 rounded-xl text-sm font-bold flex items-center gap-2 ${alert.type === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'}`}>
+                            {alert.type === 'error' ? <ShieldAlert size={18}/> : <CheckCircle size={18}/>} {alert.msg}
+                        </div>
+                    )}
+                    <div className="flex-1 overflow-y-auto p-5 pb-10 fade-in space-y-6">
+                        {activeTab === 'clientes' && (
+                            <div className="space-y-4">
+                                <h3 className="font-bold flex items-center gap-2 text-slate-300"><Users size={18}/> Base de Datos ({users.length})</h3>
+                                {users.length === 0 ? <p className="text-slate-500 text-sm">No hay clientes registrados aún.</p> : null}
+                                <div className="space-y-3">
+                                    {users.slice().reverse().map(u => (
+                                        <div key={u.id} className="bg-slate-800 p-4 rounded-2xl border border-slate-700">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <div>
+                                                    <h4 className="font-bold text-white">{u.fullName}</h4>
+                                                    <p className="text-xs text-slate-400">{u.businessName} • {u.whatsapp}</p>
+                                                </div>
+                                                <span className={`text-[10px] px-2 py-1 rounded-md font-bold uppercase ${u.status === 'Activo' ? 'bg-emerald-500/20 text-emerald-400' : u.status === 'Pendiente' ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>
+                                                    {u.status}
+                                                </span>
+                                            </div>
+                                            <div className="bg-slate-900/50 p-2 rounded-lg text-xs text-slate-400 mb-3 flex justify-between items-center">
+                                                <span>Vence: {u.expirationDate ? new Date(u.expirationDate).toLocaleDateString() : 'N/A'}</span>
+                                                {u.pin ? <span className="font-mono bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded">PIN: {u.pin}</span> : null}
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {!u.pin && <button onClick={() => generatePinForUser(u.id)} className="col-span-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded-xl">Generar PIN de Acceso</button>}
+                                                <button onClick={() => updateUserStatus(u.id, 7, 'Activo')} className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 text-xs font-bold py-2 rounded-xl">+ 7 Días (Gratis)</button>
+                                                <button onClick={() => updateUserStatus(u.id, 30, 'Activo')} className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 text-xs font-bold py-2 rounded-xl">+ 30 Días (Pago)</button>
+                                                {u.status !== 'Inactivo' && <button onClick={() => deactivateUser(u.id)} className="col-span-2 bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 text-xs font-bold py-2 rounded-xl">Inactivar Usuario</button>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        {activeTab === 'sistema' && (
+                            <div className="space-y-6">
+                                <button onClick={onPreviewMode} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl flex justify-center items-center gap-2 shadow-lg shadow-indigo-900">
+                                    <Eye size={18}/> Ver App como Cliente
+                                </button>
+                                <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
+                                    <h3 className="font-bold flex items-center gap-2"><Megaphone size={18} className="text-amber-400"/> Panel de Anuncios</h3>
+                                    <textarea value={settings.announcement || ''} onChange={(e) => setSettings({...settings, announcement: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none text-white h-24 placeholder-slate-500" placeholder="Mensaje visible para todos los clientes..."></textarea>
+                                    <button onClick={() => saveSettings('announcement', settings.announcement, 'Anuncio publicado.')} className="bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold py-2 px-4 rounded-xl w-full">Publicar Anuncio</button>
+                                </div>
+                                <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
+                                    <h3 className="font-bold flex items-center gap-2"><QrCode size={18} className="text-indigo-400"/> Configurar Pago</h3>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Precio Mensual (Bs.)</label>
+                                        <input type="number" value={settings.monthlyFee || ''} onChange={(e) => setSettings({...settings, monthlyFee: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">URL / Base64 de la imagen QR</label>
+                                        <input type="text" value={settings.qrUrl || ''} onChange={(e) => setSettings({...settings, qrUrl: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white" placeholder="https://..." />
+                                    </div>
+                                    <button onClick={() => {saveSettings('qrUrl', settings.qrUrl, 'QR guardado'); saveSettings('monthlyFee', settings.monthlyFee, 'Precio guardado');}} className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold py-2 px-4 rounded-xl w-full">Guardar Configuración</button>
+                                </div>
+                                <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
+                                    <h3 className="font-bold flex items-center gap-2"><Lock size={18} className="text-red-400"/> Seguridad</h3>
+                                    <form onSubmit={handlePwdChange} className="flex gap-2">
+                                        <input type="password" value={adminPwd} onChange={(e)=>setAdminPwd(e.target.value)} placeholder="Nueva contraseña maestra" className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white" />
+                                        <button type="submit" className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-xl">Cambiar</button>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+                        {activeTab === 'apps' && (
+                            <div className="space-y-6">
+                                <div className="bg-indigo-900/30 border border-indigo-500/30 p-5 rounded-2xl">
+                                    <h3 className="font-bold flex items-center gap-2 text-indigo-400 mb-4"><Zap size={18}/> Inyector de Mini-Apps</h3>
+                                    <form onSubmit={handleInjectApp} className="space-y-4">
+                                        <input type="text" value={appForm.name} onChange={(e) => setAppForm({...appForm, name: e.target.value})} placeholder="Nombre de la Herramienta" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white" />
+                                        <textarea value={appForm.html} onChange={(e) => setAppForm({...appForm, html: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white h-48 font-mono placeholder-slate-600" placeholder="Pega aquí el HTML completo de la Mini-App..."></textarea>
+                                        <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl flex justify-center items-center gap-2 shadow-lg">
+                                            <Code size={18}/> Inyectar y Publicar
+                                        </button>
+                                    </form>
+                                </div>
+                                <div className="space-y-3">
+                                    <h3 className="font-bold text-slate-300 text-sm">Apps Instaladas ({apps.length})</h3>
+                                    {apps.map((app, i) => (
+                                        <div key={i} className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex justify-between items-center">
+                                            <span className="font-bold text-sm text-white">{app.name}</span>
+                                            <button onClick={() => {
+                                                const newApps = apps.filter((_, index) => index !== i);
+                                                window.DB.set('apps', newApps); setApps(newApps); showAlert('success', 'App eliminada');
+                                            }} className="text-slate-400 hover:text-red-400"><Trash2 size={18}/></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 5. APLICACIÓN PRINCIPAL (ENRUTADOR TOTAL)
+        // ==========================================
+        function App() {
+            const [currentView, setCurrentView] = useState('login'); 
+            const [currentUser, setCurrentUser] = useState(null);
+            const [alert, setAlert] = useState({ type: '', message: '' });
+            const [regForm, setRegForm] = useState({ fullName: '', businessName: '', niche: '', whatsapp: '' });
+            const [pinInput, setPinInput] = useState('');
+            const [logoClicks, setLogoClicks] = useState(0);
+            const [showAdminModal, setShowAdminModal] = useState(false);
+            const [adminPwdInput, setAdminPwdInput] = useState('');
+            const clickTimeout = useRef(null);
+
+            useEffect(() => { window.DB.init(); }, []);
+
+            const showAlert = (type, message) => {
+                setAlert({ type, message });
+                if(type === 'success') setTimeout(() => setAlert({ type: '', message: '' }), 4000);
+            };
+
+            const handleRegister = (e) => {
+                e.preventDefault();
+                if (!regForm.fullName || !regForm.businessName || !regForm.niche || !regForm.whatsapp) return showAlert('error', 'Todos los campos son obligatorios.');
+                const users = window.DB.get('users') || [];
+                const newUser = { id: Date.now().toString(), ...regForm, status: 'Pendiente', pin: null, deviceId: getDeviceId(), registeredAt: new Date().toISOString(), expirationDate: null };
+                window.DB.set('users', [...users, newUser]);
+                showAlert('success', '¡Registro exitoso! Quedas en estado Pendiente.');
+                setRegForm({ fullName: '', businessName: '', niche: '', whatsapp: '' });
+                setTimeout(() => setCurrentView('login'), 3000);
+            };
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                setAlert({ type: '', message: '' });
+                if (pinInput.length !== 5 || !/^\d+$/.test(pinInput)) return showAlert('error', 'El PIN debe tener exactamente 5 números.');
+                const users = window.DB.get('users') || [];
+                const user = users.find(u => u.pin === pinInput);
+
+                if (!user) return showAlert('error', 'PIN incorrecto.');
+                if (user.status === 'Pendiente') return showAlert('error', 'Tu cuenta está pendiente.');
+                
+                const currentDevice = getDeviceId();
+                if (user.deviceId && user.deviceId !== currentDevice) return showAlert('error', 'Este PIN está amarrado a otro celular.');
+                if (!user.deviceId) { user.deviceId = currentDevice; window.DB.set('users', users.map(u => u.id === user.id ? user : u)); }
+
+                setCurrentUser(user); setPinInput(''); setCurrentView('dashboard'); 
+            };
+
+            const handleLogoClick = () => {
+                setLogoClicks(prev => prev + 1);
+                if (clickTimeout.current) clearTimeout(clickTimeout.current);
+                clickTimeout.current = setTimeout(() => setLogoClicks(0), 1500);
+            };
+
+            useEffect(() => {
+                if (logoClicks >= 5) { setShowAdminModal(true); setLogoClicks(0); }
+            }, [logoClicks]);
+
+            const handleAdminLogin = (e) => {
+                e.preventDefault();
+                if (btoa(adminPwdInput) === window.DB.get('admin').pwd) {
+                    setShowAdminModal(false); setAdminPwdInput(''); setCurrentView('admin');
+                } else { showAlert('error', 'Contraseña incorrecta.'); }
+            };
+
+            const enterAdminPreview = () => {
+                setCurrentUser({ fullName: 'Administrador Maestro', businessName: 'MemberApp', niche: 'Admin', whatsapp: 'N/A', status: 'Activo' });
+                setCurrentView('dashboard_preview');
+            };
+
+            return (
+                <div className="h-full flex flex-col relative w-full min-h-screen bg-slate-50 max-w-md mx-auto shadow-2xl">
+                    {!['dashboard', 'admin', 'dashboard_preview'].includes(currentView) && (
+                        <header className="bg-indigo-600 text-white pt-10 pb-8 px-6 shadow-md z-10 flex flex-col items-center justify-center relative rounded-b-[2rem]">
+                            <div onClick={handleLogoClick} className="bg-white/20 p-4 rounded-2xl mb-3 backdrop-blur-sm cursor-pointer active:scale-95"><ShieldCheck size={36}/></div>
+                            <h1 className="text-2xl font-bold tracking-tight">MemberApp</h1>
+                            <p className="text-indigo-200 text-xs font-semibold mt-1 tracking-widest uppercase">Ecosistema Bolivia</p>
+                        </header>
+                    )}
+                    <main className={`flex-1 overflow-y-auto w-full z-20 ${!['dashboard', 'admin', 'dashboard_preview'].includes(currentView) ? 'p-6 -mt-4' : ''}`}>
+                        {currentView === 'login' && (
+                            <div className="fade-in bg-white p-8 rounded-3xl shadow-xl shadow-indigo-100/40 border border-slate-100 relative">
+                                <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2"><Lock className="text-indigo-500" size={20} /> Acceso Exclusivo</h2>
+                                <p className="text-slate-500 text-sm mb-6">Ingresa tu PIN de 5 dígitos.</p>
+                                {alert.message && <div className={`p-4 rounded-xl mb-6 text-sm flex gap-3 ${alert.type==='error'?'bg-red-50 text-red-600':'bg-emerald-50 text-emerald-600'}`}>{alert.type==='error'?<AlertCircle size={20}/>:<CheckCircle size={20}/>} {alert.message}</div>}
+                                <form onSubmit={handleLogin} className="space-y-5">
+                                    <div className="relative">
+                                        <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                                        <input type="password" inputMode="numeric" pattern="\d{5}" maxLength={5} value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} placeholder="• • • • •" className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-2xl font-bold tracking-[0.5em] text-center rounded-xl p-4 pl-12 outline-none focus:ring-2 focus:ring-indigo-500" />
+                                    </div>
+                                    <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl flex justify-center gap-2">Entrar <ArrowRight size={18} /></button>
+                                </form>
+                                <button onClick={() => { setCurrentView('register'); setAlert({ type:'', message:'' }); }} className="mt-8 text-indigo-600 font-bold flex items-center justify-center gap-1 w-full p-2 hover:bg-indigo-50 rounded-lg"><UserPlus size={18} /> Solicitar Membresía</button>
+                            </div>
+                        )}
+                        {currentView === 'register' && (
+                            <div className="fade-in bg-white p-8 rounded-3xl shadow-xl shadow-indigo-100/40 border border-slate-100 relative">
+                                <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2"><Building className="text-indigo-500" size={20} /> Nuevo Negocio</h2>
+                                {alert.message && <div className={`p-4 rounded-xl mb-6 text-sm flex gap-3 ${alert.type==='error'?'bg-red-50 text-red-600':'bg-emerald-50 text-emerald-600'}`}>{alert.type==='error'?<AlertCircle size={20}/>:<CheckCircle size={20}/>} {alert.message}</div>}
+                                <form onSubmit={handleRegister} className="space-y-4">
+                                    <input type="text" value={regForm.fullName} onChange={(e)=>setRegForm({...regForm, fullName: e.target.value})} placeholder="Tu Nombre" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                                    <input type="text" value={regForm.businessName} onChange={(e)=>setRegForm({...regForm, businessName: e.target.value})} placeholder="Negocio" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                                    <input type="text" value={regForm.niche} onChange={(e)=>setRegForm({...regForm, niche: e.target.value})} placeholder="Rubro" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                                    <input type="tel" value={regForm.whatsapp} onChange={(e)=>setRegForm({...regForm, whatsapp: e.target.value})} placeholder="WhatsApp" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                                    <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-xl">Enviar Solicitud</button>
+                                </form>
+                                <button onClick={() => setCurrentView('login')} className="text-slate-500 text-sm font-medium w-full text-center mt-6">Cancelar y Volver</button>
+                            </div>
+                        )}
+                        {currentView === 'dashboard' && <DashboardView user={currentUser} onLogout={() => { setCurrentUser(null); setCurrentView('login'); }} />}
+                        {currentView === 'dashboard_preview' && <DashboardView user={currentUser} isAdminPreview={true} onLogout={() => setCurrentView('admin')} />}
+                        {currentView === 'admin' && <AdminDashboard onPreviewMode={enterAdminPreview} onLogout={() => setCurrentView('login')} />}
+                    </main>
+                    {showAdminModal && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
+                            <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+                                <button onClick={() => setShowAdminModal(false)} className="absolute top-4 right-4 text-slate-400"><X size={20} /></button>
+                                <h3 className="text-lg font-bold text-slate-800 mb-5">Acceso Maestro</h3>
+                                <form onSubmit={handleAdminLogin}>
+                                    <input type="password" value={adminPwdInput} onChange={(e) => setAdminPwdInput(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 outline-none" placeholder="Contraseña..." autoFocus />
+                                    <button type="submit" className="w-full bg-slate-800 text-white font-bold py-3 rounded-xl">Autorizar</button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                    <IosInstallBanner />
+                </div>
+            );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+
+    <!-- Registro del Service Worker -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => {
+                        console.log('✅ Service Worker activo (Versión controlada):', reg.scope);
+                    })
+                    .catch(err => {
+                        console.error('❌ Error al registrar Service Worker:', err);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>
 
 
-// ==========================================
-// 5. APLICACIÓN PRINCIPAL (ENRUTADOR TOTAL)
-// ==========================================
-function App() {
-  const [currentView, setCurrentView] = useState('login'); 
-  const [currentUser, setCurrentUser] = useState(null);
-  const [alert, setAlert] = useState({ type: '', message: '' });
-  
-  const [regForm, setRegForm] = useState({ fullName: '', businessName: '', niche: '', whatsapp: '' });
-  const [pinInput, setPinInput] = useState('');
-  
-  const [logoClicks, setLogoClicks] = useState(0);
-  const [showAdminModal, setShowAdminModal] = useState(false);
-  const [adminPwdInput, setAdminPwdInput] = useState('');
-  const clickTimeout = useRef(null);
 
-  useEffect(() => { window.DB.init(); }, []);
 
-  const showAlert = (type, message) => {
-    setAlert({ type, message });
-    if(type === 'success') setTimeout(() => setAlert({ type: '', message: '' }), 4000);
-  };
-
-  const handleRegister = (e) => {
-    e.preventDefault();
-    if (!regForm.fullName || !regForm.businessName || !regForm.niche || !regForm.whatsapp) return showAlert('error', 'Todos los campos son obligatorios.');
-    const users = window.DB.get('users') || [];
-    const newUser = { id: Date.now().toString(), ...regForm, status: 'Pendiente', pin: null, deviceId: getDeviceId(), registeredAt: new Date().toISOString(), expirationDate: null };
-    window.DB.set('users', [...users, newUser]);
-    showAlert('success', '¡Registro exitoso! Quedas en estado Pendiente.');
-    setRegForm({ fullName: '', businessName: '', niche: '', whatsapp: '' });
-    setTimeout(() => setCurrentView('login'), 3000);
-  };
-
-  const handleLogin = (e) => {
-    e.preventDefault();
-    setAlert({ type: '', message: '' });
-    if (pinInput.length !== 5 || !/^\d+$/.test(pinInput)) return showAlert('error', 'El PIN debe tener exactamente 5 números.');
-    const users = window.DB.get('users') || [];
-    const user = users.find(u => u.pin === pinInput);
-
-    if (!user) return showAlert('error', 'PIN incorrecto.');
-    if (user.status === 'Pendiente') return showAlert('error', 'Tu cuenta está pendiente.');
-    
-    const currentDevice = getDeviceId();
-    if (user.deviceId && user.deviceId !== currentDevice) return showAlert('error', 'Este PIN está amarrado a otro celular.');
-    if (!user.deviceId) { user.deviceId = currentDevice; window.DB.set('users', users.map(u => u.id === user.id ? user : u)); }
-
-    setCurrentUser(user); setPinInput(''); setCurrentView('dashboard'); 
-  };
-
-  const handleLogoClick = () => {
-    setLogoClicks(prev => prev + 1);
-    if (clickTimeout.current) clearTimeout(clickTimeout.current);
-    clickTimeout.current = setTimeout(() => setLogoClicks(0), 1500);
-  };
-
-  useEffect(() => {
-    if (logoClicks >= 5) { setShowAdminModal(true); setLogoClicks(0); }
-  }, [logoClicks]);
-
-  const handleAdminLogin = (e) => {
-    e.preventDefault();
-    if (btoa(adminPwdInput) === window.DB.get('admin').pwd) {
-      setShowAdminModal(false); setAdminPwdInput(''); setCurrentView('admin');
-    } else { showAlert('error', 'Contraseña incorrecta.'); }
-  };
-
-  const enterAdminPreview = () => {
-    // Creamos un usuario "fantasma" para que el admin pueda ver el dashboard sin alterar métricas
-    setCurrentUser({ fullName: 'Administrador Maestro', businessName: 'MemberApp', niche: 'Admin', whatsapp: 'N/A', status: 'Activo' });
-    setCurrentView('dashboard_preview');
-  };
-
-  return (
-    <div className="h-full flex flex-col relative w-full min-h-screen bg-slate-50 max-w-md mx-auto shadow-2xl">
-      
-      {/* Header Público */}
-      {!['dashboard', 'admin', 'dashboard_preview'].includes(currentView) && (
-        <header className="bg-indigo-600 text-white pt-10 pb-8 px-6 shadow-md z-10 flex flex-col items-center justify-center relative rounded-b-[2rem]">
-          <div onClick={handleLogoClick} className="bg-white/20 p-4 rounded-2xl mb-3 backdrop-blur-sm cursor-pointer active:scale-95"><ShieldCheck size={36}/></div>
-          <h1 className="text-2xl font-bold tracking-tight">MemberApp</h1>
-          <p className="text-indigo-200 text-xs font-semibold mt-1 tracking-widest uppercase">Ecosistema Bolivia</p>
-        </header>
-      )}
-
-      {/* Contenedor Principal */}
-      <main className={`flex-1 overflow-y-auto w-full z-20 ${!['dashboard', 'admin', 'dashboard_preview'].includes(currentView) ? 'p-6 -mt-4' : ''}`}>
-        
-        {currentView === 'login' && (
-          <div className="fade-in bg-white p-8 rounded-3xl shadow-xl shadow-indigo-100/40 border border-slate-100 relative">
-            <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2"><Lock className="text-indigo-500" size={20} /> Acceso Exclusivo</h2>
-            <p className="text-slate-500 text-sm mb-6">Ingresa tu PIN de 5 dígitos.</p>
-            {alert.message && <div className={`p-4 rounded-xl mb-6 text-sm flex gap-3 ${alert.type==='error'?'bg-red-50 text-red-600':'bg-emerald-50 text-emerald-600'}`}>{alert.type==='error'?<AlertCircle size={20}/>:<CheckCircle size={20}/>} {alert.message}</div>}
-            <form onSubmit={handleLogin} className="space-y-5">
-              <div className="relative">
-                <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                <input type="password" inputMode="numeric" pattern="\d{5}" maxLength={5} value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} placeholder="• • • • •" className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-2xl font-bold tracking-[0.5em] text-center rounded-xl p-4 pl-12 outline-none focus:ring-2 focus:ring-indigo-500" />
-              </div>
-              <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl flex justify-center gap-2">Entrar <ArrowRight size={18} /></button>
-            </form>
-            <button onClick={() => { setCurrentView('register'); setAlert({ type:'', message:'' }); }} className="mt-8 text-indigo-600 font-bold flex items-center justify-center gap-1 w-full p-2 hover:bg-indigo-50 rounded-lg"><UserPlus size={18} /> Solicitar Membresía</button>
-          </div>
-        )}
-
-        {currentView === 'register' && (
-           <div className="fade-in bg-white p-8 rounded-3xl shadow-xl shadow-indigo-100/40 border border-slate-100 relative">
-             <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2"><Building className="text-indigo-500" size={20} /> Nuevo Negocio</h2>
-             {alert.message && <div className={`p-4 rounded-xl mb-6 text-sm flex gap-3 ${alert.type==='error'?'bg-red-50 text-red-600':'bg-emerald-50 text-emerald-600'}`}>{alert.type==='error'?<AlertCircle size={20}/>:<CheckCircle size={20}/>} {alert.message}</div>}
-             <form onSubmit={handleRegister} className="space-y-4">
-               <input type="text" value={regForm.fullName} onChange={(e)=>setRegForm({...regForm, fullName: e.target.value})} placeholder="Tu Nombre" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
-               <input type="text" value={regForm.businessName} onChange={(e)=>setRegForm({...regForm, businessName: e.target.value})} placeholder="Negocio" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
-               <input type="text" value={regForm.niche} onChange={(e)=>setRegForm({...regForm, niche: e.target.value})} placeholder="Rubro" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
-               <input type="tel" value={regForm.whatsapp} onChange={(e)=>setRegForm({...regForm, whatsapp: e.target.value})} placeholder="WhatsApp" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" />
-               <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-xl">Enviar Solicitud</button>
-             </form>
-             <button onClick={() => setCurrentView('login')} className="text-slate-500 text-sm font-medium w-full text-center mt-6">Cancelar y Volver</button>
-           </div>
-        )}
-
-        {/* VISTAS PRIVADAS */}
-        {currentView === 'dashboard' && <DashboardView user={currentUser} onLogout={() => { setCurrentUser(null); setCurrentView('login'); }} />}
-        {currentView === 'dashboard_preview' && <DashboardView user={currentUser} isAdminPreview={true} onLogout={() => setCurrentView('admin')} />}
-        {currentView === 'admin' && <AdminDashboard onPreviewMode={enterAdminPreview} onLogout={() => setCurrentView('login')} />}
-
-      </main>
-
-      {/* Admin Login Modal */}
-      {showAdminModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
-          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
-            <button onClick={() => setShowAdminModal(false)} className="absolute top-4 right-4 text-slate-400"><X size={20} /></button>
-            <h3 className="text-lg font-bold text-slate-800 mb-5">Acceso Maestro</h3>
-            <form onSubmit={handleAdminLogin}>
-              <input type="password" value={adminPwdInput} onChange={(e) => setAdminPwdInput(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 outline-none" placeholder="Contraseña..." autoFocus />
-              <button type="submit" className="w-full bg-slate-800 text-white font-bold py-3 rounded-xl">Autorizar</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      <IosInstallBanner />
-    </div>
-  );
-}
-
-const root = createRoot(document.getElementById('root'));
-root.render(<App />);
