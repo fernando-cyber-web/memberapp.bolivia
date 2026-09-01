@@ -86,7 +86,6 @@
 
         function validateHTMLCode(code) {
             if(code.length > 100000) return { valid: false, error: "El código excede los 100KB permitidos." };
-            // NOTA: El sandbox del iframe ya protege, este validador es solo informativo
             return { valid: true };
         }
 
@@ -201,7 +200,7 @@
                     }
                 };
                 checkLockout();
-                const timer = setInterval(checkLockout, 1000);
+                const timer = setInterval(checkoutTimer, 1000);
                 return () => clearInterval(timer);
             }, []);
 
@@ -296,7 +295,7 @@
                                 <div className="text-left">
                                     <h3 className="font-bold text-yellow-800 mb-1">Tu PIN de acceso:</h3>
                                     <p className="text-3xl font-mono font-bold text-yellow-900 tracking-widest">{user.pin}</p>
-                                    <p className="text-sm text-yellow-700 mt-2">⚠️ Guárdalo bien. Lo necesitarás para ingresar.</p>
+                                    <p className="text-sm text-yellow-700 mt-2">️ Guárdalo bien. Lo necesitarás para ingresar.</p>
                                 </div>
                             </div>
                         </div>
@@ -385,8 +384,8 @@
                             <h2 className="font-bold truncate">{activeApp.name}</h2>
                             <button onClick={() => setActiveApp(null)} className="bg-white/20 p-2 rounded-full hover:bg-white/30"><Icons.XCircle className="w-5 h-5" /></button>
                         </div>
-                        {/* CORRECCIÓN #1: Sandbox sin allow-same-origin */}
-                        <iframe srcDoc={activeApp.code} className="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" />
+                        {/* ✅ CAMBIO: Sandbox con allow-same-origin para que las mini-apps funcionen */}
+                        <iframe srcDoc={activeApp.code} className="w-full flex-1 border-0" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" />
                     </div>
                 );
             }
@@ -423,7 +422,7 @@
                         {activeTab === 'apps' && (
                             <div className="fade-in">
                                 <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">Tus Herramientas</h2>
-                                {!isActive && <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-4 text-center font-semibold">️ Suscripción vencida. Renueva para acceder a las herramientas.</div>}
+                                {!isActive && <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-4 text-center font-semibold">⚠️ Suscripción vencida. Renueva para acceder a las herramientas.</div>}
                                 <div className="grid grid-cols-2 gap-4">
                                     {isActive && appsList.map(app => (
                                         <div key={app.id} onClick={() => setActiveApp(app)} className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col items-center justify-center text-center cursor-pointer hover:shadow-md transition-all">
@@ -719,7 +718,6 @@
                 handleLogin(newUser);
             };
 
-            // CORRECCIÓN #3: Enviar PIN por WhatsApp al registrarse
             const handleSendWhatsApp = () => {
                 if (!newUser || !globalSettings) return;
                 const adminWpp = globalSettings.adminWhatsApp || '59177066695';
