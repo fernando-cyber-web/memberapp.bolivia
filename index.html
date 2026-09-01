@@ -74,16 +74,6 @@
             return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
-        function getDeviceId() {
-            const storage = window['local' + 'Storage'];
-            let deviceId = storage.getItem('memberapp_device_id');
-            if (!deviceId) {
-                deviceId = 'dev_' + crypto.randomUUID();
-                storage.setItem('memberapp_device_id', deviceId);
-            }
-            return deviceId;
-        }
-
         function validateHTMLCode(code) {
             if(code.length > 100000) return { valid: false, error: "El código excede los 100KB permitidos." };
             return { valid: true };
@@ -92,7 +82,7 @@
         async function generateUniquePin() {
             let unique = false, newPin = '';
             while (!unique) {
-                newPin = Math.floor(10000 + Math.random() * 90000).toString();
+                newPin = Math.floor(1000 + Math.random() * 9000).toString();
                 const snap = await getDocs(query(collection(db, "users"), where("pin", "==", newPin)));
                 if (snap.empty) unique = true;
             }
@@ -106,7 +96,7 @@
                     const defaultHash = await hashSHA256("admin123");
                     await setDoc(doc(db, "settings", "global"), {
                         adminPasswordHash: defaultHash,
-                        monthlyPrice: 150,
+                        monthlyPrice: 100,
                         qrBase64: "",
                         announcement: "¡Bienvenidos a MemberApp Bolivia V1.0!",
                         adminWhatsApp: "59177066695"
@@ -121,7 +111,6 @@
                     id: userId, 
                     status: 'Activo',
                     pin: uniquePin, 
-                    deviceId: getDeviceId(), 
                     createdAt: new Date().toISOString(), 
                     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() 
                 };
@@ -183,65 +172,76 @@
 
         const AuthScreen = ({ onLogin, onRegister, onSecretClick, onRegisterSuccess }) => {
             const [mode, setMode] = useState('login');
+            const [whatsapp, setWhatsapp] = useState('');
             const [pin, setPin] = useState('');
+            const [step, setStep] = useState(1);
             const [formData, setFormData] = useState({ nombre: '', negocio: '', rubro: '', whatsapp: '' });
             const [error, setError] = useState('');
             const [loading, setLoading] = useState(false);
-            const [lockoutTimer, setLockoutTimer] = useState(0);
 
-            useEffect(() => {
-                const storage = window['local' + 'Storage'];
-                const checkLockout = () => {
-                    const failData = JSON.parse(storage.getItem('loginFails') || '{"fails":0, "lockUntil":0}');
-                    if (Date.now() < failData.lockUntil) setLockoutTimer(Math.ceil((failData.lockUntil - Date.now()) / 1000));
-                    else {
-                        if (failData.fails >= 5) storage.setItem('loginFails', JSON.stringify({ fails: 0, lockUntil: 0 }));
-                        setLockoutTimer(0);
+            const handleLoginStep1 = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+                
+                try {
+                    const q = query(collection(db, "users"), where("whatsapp", "==", whatsapp));
+                    const snap = await getDocs(q);
+                    
+                    if (snap.empty) {
+                        setError('Número no registrado. Verifica o regístrate.');
+                        setLoading(false);
+                        return;
                     }
-                };
-                checkLockout();
-                const timer = setInterval(checkLockout, 1000);
-                return () => clearInterval(timer);
-            }, []);
-
-            const recordFail = () => {
-                const storage = window['local' + 'Storage'];
-                let failData = JSON.parse(storage.getItem('loginFails') || '{"fails":0, "lockUntil":0}');
-                failData.fails += 1;
-                if (failData.fails >= 5) {
-                    failData.lockUntil = Date.now() + 15 * 60 * 1000;
-                    setError('Demasiados intentos. Bloqueado por 15 min.');
+                    
+                    const user = snap.docs[0].data();
+                    if (user.status === 'Inactivo') {
+                        setError('Cuenta inactiva. Contacta al admin.');
+                        setLoading(false);
+                        return;
+                    }
+                    
+                    setStep(2);
+                } catch (err) {
+                    setError('Error de conexión.');
                 }
-                storage.setItem('loginFails', JSON.stringify(failData));
+                setLoading(false);
             };
 
-            const handleLogin = async (e) => {
+            const handleLoginStep2 = async (e) => {
                 e.preventDefault();
-                if (lockoutTimer > 0) return;
-                setLoading(true); setError('');
+                setError('');
+                setLoading(true);
+                
                 try {
-                    const q = query(collection(db, "users"), where("pin", "==", pin));
+                    const q = query(collection(db, "users"), where("whatsapp", "==", whatsapp), where("pin", "==", pin));
                     const snap = await getDocs(q);
-                    if (!snap.empty) {
-                        const foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
-                        if (foundUser.deviceId !== getDeviceId()) { setError('Dispositivo no autorizado.'); recordFail(); }
-                        else if (foundUser.status === 'Inactivo') { setError('Cuenta inactiva. Contacta al admin.'); }
-                        else {
-                            window['local' + 'Storage'].setItem('loginFails', JSON.stringify({ fails: 0, lockUntil: 0 }));
-                            onLogin(foundUser);
-                        }
-                    } else { setError('PIN incorrecto.'); recordFail(); }
-                } catch (err) { setError('Error de conexión.'); }
+                    
+                    if (snap.empty) {
+                        setError('PIN incorrecto.');
+                        setLoading(false);
+                        return;
+                    }
+                    
+                    const user = { id: snap.docs[0].id, ...snap.docs[0].data() };
+                    onLogin(user);
+                } catch (err) {
+                    setError('Error de conexión.');
+                }
                 setLoading(false);
             };
 
             const handleRegister = async (e) => {
-                e.preventDefault(); setLoading(true);
-                try { 
-                    const newUser = await onRegister(formData); 
-                    setError(''); 
+                e.preventDefault();
+                setLoading(true);
+                setError('');
+                
+                try {
+                    const newUser = await onRegister(formData);
                     onRegisterSuccess(newUser);
-                } catch(err) { setError('Error al registrar.'); }
+                } catch(err) {
+                    setError('Error al registrar.');
+                }
                 setLoading(false);
             };
 
@@ -254,20 +254,71 @@
                             </div>
                             <h2 className="text-3xl font-bold text-gray-800 dark:text-white">MemberApp</h2>
                         </div>
+                        
                         {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-6 text-sm flex items-center font-semibold"><Icons.AlertCircle className="w-4 h-4 mr-2 shrink-0" /> {error}</div>}
+                        
                         {mode === 'login' ? (
-                            <form onSubmit={handleLogin} className="space-y-6">
-                                <input type="password" maxLength="5" pattern="[0-9]{5}" required disabled={lockoutTimer > 0} value={pin} onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))} className="w-full text-center text-4xl tracking-[0.4em] p-4 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-brand-green outline-none font-mono" placeholder="•••••"/>
-                                {lockoutTimer > 0 ? <div className="text-center bg-red-100 text-red-700 p-3 rounded-xl font-bold">Bloqueado: {Math.floor(lockoutTimer/60)}:{(lockoutTimer%60).toString().padStart(2,'0')} min.</div> : 
-                                <button type="submit" disabled={loading || pin.length !== 5} className="w-full bg-gradient-to-r from-brand-green to-emerald-500 text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50">{loading ? 'Verificando...' : 'Ingresar'}</button>}
-                                <div className="text-center pt-2"><button type="button" onClick={() => setMode('register')} className="text-brand-blue text-sm font-semibold hover:underline">¿No tienes cuenta? Regístrate aquí</button></div>
-                            </form>
+                            step === 1 ? (
+                                <form onSubmit={handleLoginStep1} className="space-y-6">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Número de WhatsApp</label>
+                                        <input 
+                                            type="tel" 
+                                            placeholder="Ej: 77066695" 
+                                            required 
+                                            value={whatsapp} 
+                                            onChange={(e) => setWhatsapp(e.target.value.replace(/[^0-9]/g, ''))} 
+                                            className="w-full text-center text-2xl tracking-wider p-4 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-brand-green outline-none"
+                                        />
+                                    </div>
+                                    <button 
+                                        type="submit" 
+                                        disabled={loading || whatsapp.length < 8} 
+                                        className="w-full bg-gradient-to-r from-brand-green to-emerald-500 text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+                                    >
+                                        {loading ? 'Verificando...' : 'Continuar'}
+                                    </button>
+                                    <div className="text-center pt-2">
+                                        <button type="button" onClick={() => setMode('register')} className="text-brand-blue text-sm font-semibold hover:underline">
+                                            ¿No tienes cuenta? Regístrate aquí
+                                        </button>
+                                    </div>
+                                </form>
+                            ) : (
+                                <form onSubmit={handleLoginStep2} className="space-y-6">
+                                    <div className="text-center">
+                                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Ingresa tu PIN de 4 dígitos</p>
+                                    </div>
+                                    <input 
+                                        type="password" 
+                                        maxLength="4" 
+                                        pattern="[0-9]{4}" 
+                                        required 
+                                        value={pin} 
+                                        onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))} 
+                                        className="w-full text-center text-4xl tracking-[0.5em] p-4 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-brand-green outline-none font-mono" 
+                                        placeholder="••••"
+                                    />
+                                    <button 
+                                        type="submit" 
+                                        disabled={loading || pin.length !== 4} 
+                                        className="w-full bg-gradient-to-r from-brand-green to-emerald-500 text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+                                    >
+                                        {loading ? 'Verificando...' : 'Ingresar'}
+                                    </button>
+                                    <div className="text-center pt-2">
+                                        <button type="button" onClick={() => setStep(1)} className="text-gray-500 text-sm font-semibold hover:underline">
+                                            ← Volver
+                                        </button>
+                                    </div>
+                                </form>
+                            )
                         ) : (
                             <form onSubmit={handleRegister} className="space-y-4">
                                 <input type="text" placeholder="Tu Nombre Completo" required value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} className="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-white outline-none" />
                                 <input type="text" placeholder="Nombre de tu Negocio" required value={formData.negocio} onChange={e => setFormData({...formData, negocio: e.target.value})} className="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-white outline-none" />
                                 <input type="text" placeholder="Rubro" required value={formData.rubro} onChange={e => setFormData({...formData, rubro: e.target.value})} className="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-white outline-none" />
-                                <input type="tel" placeholder="WhatsApp" required value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value.replace(/[^0-9]/g, '')})} className="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-white outline-none" />
+                                <input type="tel" placeholder="WhatsApp (ej: 77066695)" required value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value.replace(/[^0-9]/g, '')})} className="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-white outline-none" />
                                 <button type="submit" disabled={loading} className="w-full bg-brand-blue text-white font-bold py-4 rounded-xl shadow-lg hover:bg-blue-600 transition-all mt-4">{loading ? 'Registrando...' : 'Solicitar Acceso'}</button>
                                 <div className="text-center mt-2"><button type="button" onClick={() => setMode('login')} className="text-gray-500 text-sm font-semibold hover:underline">Volver al Login</button></div>
                             </form>
@@ -278,7 +329,7 @@
         };
 
         const WelcomeScreen = ({ user, globalSettings, onContinue, onSendWhatsApp }) => {
-            const monthlyPrice = globalSettings?.monthlyPrice || 150;
+            const monthlyPrice = globalSettings?.monthlyPrice || 100;
             
             return (
                 <div className="min-h-screen bg-gradient-to-br from-brand-green to-brand-blue flex items-center justify-center p-6">
@@ -301,7 +352,7 @@
                         </div>
 
                         <div className="bg-blue-50 p-4 rounded-xl mb-6 text-left">
-                            <h3 className="font-bold text-blue-800 mb-2">📋 Tu suscripción incluye:</h3>
+                            <h3 className="font-bold text-blue-800 mb-2"> Tu suscripción incluye:</h3>
                             <ul className="text-sm text-blue-700 space-y-1">
                                 <li>✅ 7 días de acceso completo</li>
                                 <li>✅ Todas las mini-apps disponibles</li>
@@ -374,8 +425,8 @@
 
             const isActive = user.status === 'Activo' && new Date(user.expiresAt) > new Date();
             const adminWpp = globalSettings?.adminWhatsApp || '59177066695';
-            const monthlyPrice = globalSettings?.monthlyPrice || 150;
-            const wppMessage = encodeURIComponent(` Hola Admin MemberApp Bolivia,\n\nSoy: ${user.nombre}\nNegocio: ${user.negocio}\nRubro: ${user.rubro}\nMi PIN: ${user.pin}\n\nQuiero renovar mi suscripción mensual.\nAdjunto mi comprobante de pago.`);
+            const monthlyPrice = globalSettings?.monthlyPrice || 100;
+            const wppMessage = encodeURIComponent(`Hola Admin MemberApp Bolivia,\n\nSoy: ${user.nombre}\nNegocio: ${user.negocio}\nRubro: ${user.rubro}\nMi WhatsApp: ${user.whatsapp}\n\nQuiero renovar mi suscripción mensual.\nAdjunto mi comprobante de pago.`);
 
             if (activeApp) {
                 return (
@@ -409,7 +460,7 @@
                                 <div className="flex items-start">
                                     <Icons.Clock className="w-6 h-6 text-yellow-600 mr-3 mt-1 flex-shrink-0" />
                                     <div className="flex-1">
-                                        <h3 className="font-bold text-yellow-800 mb-1">⏰ Tu suscripción vence pronto</h3>
+                                        <h3 className="font-bold text-yellow-800 mb-1"> Tu suscripción vence pronto</h3>
                                         <p className="text-sm text-yellow-700 mb-3">Te quedan {timeLeft.days} días, {timeLeft.hours} horas. Renueva ahora para no perder el acceso.</p>
                                         <a href={`https://wa.me/${adminWpp}?text=${wppMessage}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition-all text-sm">
                                             <Icons.Smartphone className="w-4 h-4 mr-2" /> Renovar por WhatsApp
@@ -478,7 +529,7 @@
             const [activeTab, setActiveTab] = useState('clientes');
             const [usersList, setUsersList] = useState([]);
             const [appsList, setAppsList] = useState([]);
-            const [settings, setSettings] = useState({ monthlyPrice: 150, qrBase64: '', announcement: '', adminWhatsApp: '59177066695' });
+            const [settings, setSettings] = useState({ monthlyPrice: 100, qrBase64: '', announcement: '', adminWhatsApp: '59177066695' });
             const [newApp, setNewApp] = useState({ name: '', code: '' });
             const [adminPassword, setAdminPassword] = useState('');
             const [loading, setLoading] = useState(true);
@@ -487,7 +538,7 @@
                 const unsubUsers = onSnapshot(collection(db, "users"), (snap) => setUsersList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
                 const unsubApps = onSnapshot(collection(db, "apps"), (snap) => setAppsList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
                 const unsubSettings = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
-                    if(docSnap.exists()) setSettings({...{ monthlyPrice: 150, qrBase64: '', announcement: '', adminWhatsApp: '59177066695' }, ...docSnap.data()});
+                    if(docSnap.exists()) setSettings({...{ monthlyPrice: 100, qrBase64: '', announcement: '', adminWhatsApp: '59177066695' }, ...docSnap.data()});
                     setLoading(false);
                 });
                 return () => { unsubUsers(); unsubApps(); unsubSettings(); };
@@ -496,7 +547,7 @@
             const generateUniquePin = async (userId) => {
                 let unique = false, newPin = '';
                 while (!unique) {
-                    newPin = Math.floor(10000 + Math.random() * 90000).toString();
+                    newPin = Math.floor(1000 + Math.random() * 9000).toString();
                     const snap = await getDocs(query(collection(db, "users"), where("pin", "==", newPin)));
                     if (snap.empty) unique = true;
                 }
@@ -665,7 +716,7 @@
                     if (savedUserId) {
                         try {
                             const userDoc = await getDoc(doc(db, "users", savedUserId));
-                            if (userDoc.exists() && userDoc.data().deviceId === getDeviceId()) setCurrentUser({ id: userDoc.id, ...userDoc.data() });
+                            if (userDoc.exists()) setCurrentUser({ id: userDoc.id, ...userDoc.data() });
                             else window['local' + 'Storage'].removeItem('memberapp_session');
                         } catch (e) { console.error("Error sesión"); }
                     }
@@ -680,9 +731,7 @@
                     unsubApps = onSnapshot(collection(db, "apps"), (snap) => { setAppsList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); });
                     unsubUser = onSnapshot(doc(db, "users", currentUser.id), (docSnap) => {
                         if (docSnap.exists()) {
-                            const data = docSnap.data();
-                            if (data.deviceId !== getDeviceId()) { window['local' + 'Storage'].removeItem('memberapp_session'); setCurrentUser(null); }
-                            else setCurrentUser({ id: docSnap.id, ...data });
+                            setCurrentUser({ id: docSnap.id, ...docSnap.data() });
                         } else { window['local' + 'Storage'].removeItem('memberapp_session'); setCurrentUser(null); }
                     });
                 }
