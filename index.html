@@ -78,7 +78,7 @@
             const storage = window['local' + 'Storage'];
             let deviceId = storage.getItem('memberapp_device_id');
             if (!deviceId) {
-                deviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + Date.now();
+                deviceId = 'dev_' + crypto.randomUUID();
                 storage.setItem('memberapp_device_id', deviceId);
             }
             return deviceId;
@@ -86,10 +86,7 @@
 
         function validateHTMLCode(code) {
             if(code.length > 100000) return { valid: false, error: "El código excede los 100KB permitidos." };
-            const forbidden = ['eval(', 'document.cookie', 'window.parent'];
-            for(let word of forbidden) {
-                if(code.includes(word)) return { valid: false, error: `Uso de código prohibido detectado: ${word}` };
-            }
+            // NOTA: El sandbox del iframe ya protege, este validador es solo informativo
             return { valid: true };
         }
 
@@ -152,7 +149,8 @@
             Settings: ({ className = '' }) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
             Door: ({ className = '' }) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/><path d="M14 12v.01"/></svg>,
             Download: ({ className = '' }) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
-            Clock: ({ className = '' }) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Clock: ({ className = '' }) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+            MessageCircle: ({ className = '' }) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
         };
 
         const SplashScreen = () => (
@@ -280,41 +278,49 @@
             );
         };
 
-        const WelcomeScreen = ({ user, onContinue }) => (
-            <div className="min-h-screen bg-gradient-to-br from-brand-green to-brand-blue flex items-center justify-center p-6">
-                <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center">
-                    <div className="w-20 h-20 bg-brand-green/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <Icons.CheckCircle className="w-12 h-12 text-brand-green" />
-                    </div>
-                    <h1 className="text-3xl font-bold text-gray-800 mb-4">¡Bienvenido, {user.nombre.split(' ')[0]}!</h1>
-                    <p className="text-gray-600 mb-6">Tu cuenta ha sido activada automáticamente con 7 días de prueba gratuita.</p>
-                    
-                    <div className="bg-yellow-50 border-2 border-yellow-300 p-4 rounded-xl mb-6">
-                        <div className="flex items-start">
-                            <Icons.AlertCircle className="w-6 h-6 text-yellow-600 mr-3 mt-1 flex-shrink-0" />
-                            <div className="text-left">
-                                <h3 className="font-bold text-yellow-800 mb-1">Tu PIN de acceso:</h3>
-                                <p className="text-3xl font-mono font-bold text-yellow-900 tracking-widest">{user.pin}</p>
-                                <p className="text-sm text-yellow-700 mt-2">⚠️ Guárdalo bien. Lo necesitarás para ingresar.</p>
+        const WelcomeScreen = ({ user, globalSettings, onContinue, onSendWhatsApp }) => {
+            const monthlyPrice = globalSettings?.monthlyPrice || 150;
+            
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-brand-green to-brand-blue flex items-center justify-center p-6">
+                    <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center">
+                        <div className="w-20 h-20 bg-brand-green/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <Icons.CheckCircle className="w-12 h-12 text-brand-green" />
+                        </div>
+                        <h1 className="text-3xl font-bold text-gray-800 mb-4">¡Bienvenido, {user.nombre.split(' ')[0]}!</h1>
+                        <p className="text-gray-600 mb-6">Tu cuenta ha sido activada automáticamente con 7 días de prueba gratuita.</p>
+                        
+                        <div className="bg-yellow-50 border-2 border-yellow-300 p-4 rounded-xl mb-6">
+                            <div className="flex items-start">
+                                <Icons.AlertCircle className="w-6 h-6 text-yellow-600 mr-3 mt-1 flex-shrink-0" />
+                                <div className="text-left">
+                                    <h3 className="font-bold text-yellow-800 mb-1">Tu PIN de acceso:</h3>
+                                    <p className="text-3xl font-mono font-bold text-yellow-900 tracking-widest">{user.pin}</p>
+                                    <p className="text-sm text-yellow-700 mt-2">⚠️ Guárdalo bien. Lo necesitarás para ingresar.</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div className="bg-blue-50 p-4 rounded-xl mb-6 text-left">
-                        <h3 className="font-bold text-blue-800 mb-2">📋 Tu suscripción incluye:</h3>
-                        <ul className="text-sm text-blue-700 space-y-1">
-                            <li>✅ 7 días de acceso completo</li>
-                            <li>✅ Todas las mini-apps disponibles</li>
-                            <li>✅ Renovación por Bs. {user._monthlyPrice || 150}/mes</li>
-                        </ul>
-                    </div>
+                        <div className="bg-blue-50 p-4 rounded-xl mb-6 text-left">
+                            <h3 className="font-bold text-blue-800 mb-2">📋 Tu suscripción incluye:</h3>
+                            <ul className="text-sm text-blue-700 space-y-1">
+                                <li>✅ 7 días de acceso completo</li>
+                                <li>✅ Todas las mini-apps disponibles</li>
+                                <li>✅ Renovación por Bs. {monthlyPrice}/mes</li>
+                            </ul>
+                        </div>
 
-                    <button onClick={onContinue} className="w-full bg-brand-green text-white font-bold py-4 rounded-xl shadow-lg hover:bg-emerald-600 transition-all">
-                        Comenzar a usar MemberApp
-                    </button>
+                        <button onClick={onContinue} className="w-full bg-brand-green text-white font-bold py-4 rounded-xl shadow-lg hover:bg-emerald-600 transition-all mb-4">
+                            Comenzar a usar MemberApp
+                        </button>
+
+                        <button onClick={onSendWhatsApp} className="w-full bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-green-600 transition-all flex items-center justify-center">
+                            <Icons.MessageCircle className="w-5 h-5 mr-2" /> Enviar comprobante por WhatsApp
+                        </button>
+                    </div>
                 </div>
-            </div>
-        );
+            );
+        };
 
         const ClientDashboard = ({ user, globalSettings, appsList, onLogout }) => {
             const [activeTab, setActiveTab] = useState('apps');
@@ -379,7 +385,8 @@
                             <h2 className="font-bold truncate">{activeApp.name}</h2>
                             <button onClick={() => setActiveApp(null)} className="bg-white/20 p-2 rounded-full hover:bg-white/30"><Icons.XCircle className="w-5 h-5" /></button>
                         </div>
-                        <iframe srcDoc={activeApp.code} className="w-full flex-1 border-0" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" />
+                        {/* CORRECCIÓN #1: Sandbox sin allow-same-origin */}
+                        <iframe srcDoc={activeApp.code} className="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" />
                     </div>
                 );
             }
@@ -703,8 +710,7 @@
             const completeOnboarding = () => { window['local' + 'Storage'].setItem('memberapp_first_login', 'true'); setShowOnboarding(false); };
             
             const handleRegisterSuccess = (user) => { 
-                const userWithPrice = { ...user, _monthlyPrice: globalSettings?.monthlyPrice || 150 };
-                setNewUser(userWithPrice); 
+                setNewUser(user); 
                 setShowWelcome(true); 
             };
             
@@ -713,9 +719,17 @@
                 handleLogin(newUser);
             };
 
+            // CORRECCIÓN #3: Enviar PIN por WhatsApp al registrarse
+            const handleSendWhatsApp = () => {
+                if (!newUser || !globalSettings) return;
+                const adminWpp = globalSettings.adminWhatsApp || '59177066695';
+                const message = encodeURIComponent(`Hola Admin MemberApp Bolivia,\n\nAcabo de registrarme. Mis datos:\n- Nombre: ${newUser.nombre}\n- Negocio: ${newUser.negocio}\n- Rubro: ${newUser.rubro}\n- WhatsApp: ${newUser.whatsapp}\n- Mi PIN: ${newUser.pin}\n\nAdjunto mi comprobante de pago para activar mi cuenta.`);
+                window.open(`https://wa.me/${adminWpp}?text=${message}`, '_blank');
+            };
+
             if (loading) return <SplashScreen />;
             if (showOnboarding) return <Onboarding onComplete={completeOnboarding} />;
-            if (showWelcome && newUser) return <WelcomeScreen user={newUser} onContinue={handleWelcomeContinue} />;
+            if (showWelcome && newUser) return <WelcomeScreen user={newUser} globalSettings={globalSettings} onContinue={handleWelcomeContinue} onSendWhatsApp={handleSendWhatsApp} />;
 
             if (isAdminMode) {
                 if (!adminAuthenticated) {
